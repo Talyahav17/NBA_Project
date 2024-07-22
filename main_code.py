@@ -111,6 +111,18 @@ def fetch_data():
 
 def predict_game(team1, team2):
     """Predicts game scores between two NBA teams."""
+    try:
+        # Check if the file exists and is not empty
+        with open('nba_games_2020_2024.csv', 'r') as file:
+            if file.read().strip():  # Check if the file is not empty
+                file.seek(0)  # Reset file pointer to the beginning
+                games_df = pd.read_csv(file)
+            else:
+                raise ValueError("The CSV file is empty.")
+    except FileNotFoundError:
+        raise FileNotFoundError("The file 'nba_games_2020_2024.csv' does not exist.")
+    except pd.errors.EmptyDataError:
+        raise ValueError("No columns to parse from file. Ensure the file is properly formatted.")
     games_df = pd.read_csv('nba_games_2020_2024.csv', header=None)
     games_df.columns = ['Date', 'Visitor Team', 'Visitor Score', 'Home Team', 'Home Score']
     
@@ -178,31 +190,31 @@ info = tk.Label(frame, text="Our goal is to predict the future result of a game 
 info.pack(side="bottom", pady=10)
 
 image = Image.open("NBA_Logo.png")
-resized_image = image.resize((200, 200))
+resized_image = image.resize((100, 200))
 photo = ImageTk.PhotoImage(resized_image)
 
 label = tk.Label(root, image=photo)
-label.place(x=535, y=150)
+label.place(x=670, y=150)
 
-fetch_button = tk.Button(root, text="Fetch Data", command=fetch_data, font=("Arial", 16), bg="blue", fg="white")
-fetch_button.place(x=50, y=150)
+fetch_button = tk.Button(root, text="Fetch Data", command=fetch_data, font=("DM Sans", 16), bg="blue", fg="black")
+fetch_button.place(x=670, y=550)
 
 team1_var = StringVar()
 team2_var = StringVar()
 
 teams = ["ATL", "BOS", "BRK", "CHO", "CHI", "CLE", "DAL", "DEN", "DET", "GSW", "HOU", "IND", "LAC", "LAL", "MEM", "MIA", "MIL", "MIN", "NOP", "NYK", "OKC", "ORL", "PHI", "PHO", "POR", "SAC", "SAS", "TOR", "UTA", "WAS"]
 
-team1_label = tk.Label(root, text="Select Team 1", font=("Arial", 16), bg='white')
-team1_label.place(x=50, y=250)
+team1_label = tk.Label(root, text="Select Team 1", font=("DM Sans", 16), bg='blue')
+team1_label.place(x=550, y=650)
 team1_menu = OptionMenu(root, team1_var, *teams)
-team1_menu.place(x=200, y=250)
+team1_menu.place(x=700, y=650)
 
-team2_label = tk.Label(root, text="Select Team 2", font=("Arial", 16), bg='white')
-team2_label.place(x=50, y=300)
+team2_label = tk.Label(root, text="Select Team 2", font=("DM Sans", 16), bg='blue')
+team2_label.place(x=550, y=700)
 team2_menu = OptionMenu(root, team2_var, *teams)
-team2_menu.place(x=200, y=300)
+team2_menu.place(x=700, y=700)
 
-predict_button = tk.Button(root, text="Predict Game", command=on_predict, font=("Arial", 16), bg="green", fg="white")
-predict_button.place(x=50, y=350)
+predict_button = tk.Button(root, text="Predict Game", command=on_predict, font=("Arial", 16), bg="blue", fg="black")
+predict_button.place(x=670, y=800)
 
 root.mainloop()
