@@ -72,11 +72,15 @@ def get_player_stats(player_id, season):
                 break
     return stats
 
-def save_to_csv(data, filename):
+def save_to_csv(data, filename, headers=None):
     """Saves data to a CSV file."""
+    print(f"Saving data to {filename}...")  # Added debug print
     with open(filename, mode='w', newline='', encoding='utf-8') as file:
         writer = csv.writer(file)
+        if headers:
+            writer.writerow(headers)
         writer.writerows(data)
+    print(f"Data saved to {filename}.")  # Added debug print
 
 def fetch_data():
     """Fetches NBA games and team rosters for seasons 2020-2024 and saves them to CSV files."""
@@ -88,6 +92,8 @@ def fetch_data():
     for season in seasons:
         print(f"Fetching games for season {season}...")
         games = get_season_games(season)
+        if games:
+            print(f"Found {len(games)} games for season {season}.")
         all_games.extend(games)
         for game in games:
             teams.add(game[1])
@@ -99,32 +105,31 @@ def fetch_data():
         for season in seasons:
             print(f"Fetching roster for team {team} in season {season}...")
             players = get_team_roster(team, season)
+            if players:
+                print(f"Found {len(players)} players for team {team} in season {season}.")
             for player in players:
                 player.append(team)
                 player.append(season)
             all_players.extend(players)
             time.sleep(1)  # to avoid hitting the site too frequently
     
-    save_to_csv(all_games, 'nba_games_2020_2024.csv')
-    save_to_csv(all_players, 'nba_players_2020_2024.csv')
+    all_games_headers = ['Date', 'Visitor Team', 'Visitor Score', 'Home Team', 'Home Score']
+    all_players_headers = ['Player Name', 'Position', 'Height', 'Weight', 'Birth Date', 'Team', 'Season']
+    
+    save_to_csv(all_games, 'nba_games_2020_2024.csv', all_games_headers)
+    save_to_csv(all_players, 'nba_players_2020_2024.csv', all_players_headers)
     messagebox.showinfo("Data Fetch", "Data fetching complete and saved to CSV files.")
 
 def predict_game(team1, team2):
     """Predicts game scores between two NBA teams."""
     try:
-        # Check if the file exists and is not empty
-        with open('nba_games_2020_2024.csv', 'r') as file:
-            if file.read().strip():  # Check if the file is not empty
-                file.seek(0)  # Reset file pointer to the beginning
-                games_df = pd.read_csv(file)
-            else:
-                raise ValueError("The CSV file is empty.")
+        games_df = pd.read_csv('nba_games_2020_2024.csv')
+        if games_df.empty:
+            raise ValueError("The CSV file is empty.")
     except FileNotFoundError:
         raise FileNotFoundError("The file 'nba_games_2020_2024.csv' does not exist.")
     except pd.errors.EmptyDataError:
         raise ValueError("No columns to parse from file. Ensure the file is properly formatted.")
-    games_df = pd.read_csv('nba_games_2020_2024.csv', header=None)
-    games_df.columns = ['Date', 'Visitor Team', 'Visitor Score', 'Home Team', 'Home Score']
     
     team1_games = games_df[(games_df['Visitor Team'] == team1) | (games_df['Home Team'] == team1)]
     team2_games = games_df[(games_df['Visitor Team'] == team2) | (games_df['Home Team'] == team2)]
@@ -137,7 +142,7 @@ def predict_game(team1, team2):
 
 def display_players(team, season):
     """Displays players' details for a specific NBA team in a season."""
-    players_df = pd.read_csv('nba_players_2020_2024.csv', header=None)
+    players_df = pd.read_csv('nba_players_2020_2024.csv')
     players_df.columns = ['Player Name', 'Position', 'Height', 'Weight', 'Birth Date', 'Team', 'Season']
     
     team_players = players_df[(players_df['Team'] == team) & (players_df['Season'] == season)]
@@ -145,7 +150,7 @@ def display_players(team, season):
 
 def predict_player_scores(team, season):
     """Predicts player scores for a specific NBA team in a season."""
-    players_df = pd.read_csv('nba_players_2020_2024.csv', header=None)
+    players_df = pd.read_csv('nba_players_2020_2024.csv')
     players_df.columns = ['Player Name', 'Position', 'Height', 'Weight', 'Birth Date', 'Team', 'Season']
     
     team_players = players_df[(players_df['Team'] == team) & (players_df['Season'] == season)]
@@ -173,6 +178,7 @@ def on_predict():
     else:
         messagebox.showwarning("Input Error", "Please select both teams.")
 
+
 # GUI Setup
 root = tk.Tk()
 root.title("NBA Prediction")
@@ -194,10 +200,10 @@ resized_image = image.resize((100, 200))
 photo = ImageTk.PhotoImage(resized_image)
 
 label = tk.Label(root, image=photo)
-label.place(x=670, y=150)
+label.place(x=400, y=100)
 
 fetch_button = tk.Button(root, text="Fetch Data", command=fetch_data, font=("DM Sans", 16), bg="blue", fg="black")
-fetch_button.place(x=670, y=550)
+fetch_button.place(x=400, y=450)
 
 team1_var = StringVar()
 team2_var = StringVar()
@@ -205,16 +211,16 @@ team2_var = StringVar()
 teams = ["ATL", "BOS", "BRK", "CHO", "CHI", "CLE", "DAL", "DEN", "DET", "GSW", "HOU", "IND", "LAC", "LAL", "MEM", "MIA", "MIL", "MIN", "NOP", "NYK", "OKC", "ORL", "PHI", "PHO", "POR", "SAC", "SAS", "TOR", "UTA", "WAS"]
 
 team1_label = tk.Label(root, text="Select Team 1", font=("DM Sans", 16), bg='blue')
-team1_label.place(x=550, y=650)
+team1_label.place(x=350, y=350)
 team1_menu = OptionMenu(root, team1_var, *teams)
-team1_menu.place(x=700, y=650)
+team1_menu.place(x=500, y=350)
 
 team2_label = tk.Label(root, text="Select Team 2", font=("DM Sans", 16), bg='blue')
-team2_label.place(x=550, y=700)
+team2_label.place(x=350, y=400)
 team2_menu = OptionMenu(root, team2_var, *teams)
-team2_menu.place(x=700, y=700)
+team2_menu.place(x=500, y=400)
 
 predict_button = tk.Button(root, text="Predict Game", command=on_predict, font=("Arial", 16), bg="blue", fg="black")
-predict_button.place(x=670, y=800)
+predict_button.place(x=400, y=500)
 
 root.mainloop()
