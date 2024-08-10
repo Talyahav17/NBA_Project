@@ -1,17 +1,46 @@
-import csv
-import time
-import tkinter as tk
-from tkinter import messagebox, StringVar, OptionMenu
-from PIL import Image, ImageTk
 import requests
 from bs4 import BeautifulSoup
+import sqlite3
+import time
+import tkinter as tk
+from tkinter import messagebox, StringVar, OptionMenu, Label, Button
+from PIL import Image, ImageTk
 import pandas as pd
 
-# Constants
 BASE_URL = "https://www.basketball-reference.com"
 
+# Connect to SQLite database (or create it)
+conn = sqlite3.connect('nba_data.db')
+c = conn.cursor()
+
+# Create tables
+c.execute('''CREATE TABLE IF NOT EXISTS games (
+                date TEXT,
+                visitor_team TEXT,
+                visitor_score INTEGER,
+                home_team TEXT,
+                home_score INTEGER
+            )''')
+
+c.execute('''CREATE TABLE IF NOT EXISTS players (
+                player_name TEXT,
+                position TEXT,
+                height TEXT,
+                weight TEXT,
+                birth_date TEXT,
+                team TEXT,
+                season INTEGER
+            )''')
+
+c.execute('''CREATE TABLE IF NOT EXISTS player_stats (
+                player_id TEXT,
+                season INTEGER,
+                points_per_game REAL
+            )''')
+
+conn.commit()
+
 def get_season_games(season):
-    """Fetches NBA game data for a specific season."""
     url = f"{BASE_URL}/leagues/NBA_{season}_games.html"
     response = requests.get(url)
     soup = BeautifulSoup(response.text, 'html.parser')
@@ -34,12 +63,11 @@ def get_season_games(season):
                 home_team = teams[1].text.strip()
                 visitor_score = scores[0].text.strip()
                 home_score = scores[1].text.strip()
-                games.append([date, visitor_team, visitor_score, home_team, home_score])
+                games.append([date, visitor_team, int(visitor_score), home_team, int(home_score)])
     
     return games
 
 def get_team_roster(team, season):
-    """Fetches roster data for a specific NBA team in a season."""
     team_url = f"{BASE_URL}/teams/{team}/{season}.html"
     response = requests.get(team_url)
     soup = BeautifulSoup(response.text, 'html.parser')
@@ -53,11 +81,10 @@ def get_team_roster(team, season):
             height = row.find('td', {'data-stat': 'height'}).text.strip()
             weight = row.find('td', {'data-stat': 'weight'}).text.strip()
             birth_date = row.find('td', {'data-stat': 'birth_date'}).text.strip()
-            players.append([player_name, position, height, weight, birth_date])
+            players.append([player_name, position, height, weight, birth_date, team, season])
     return players
 
 def get_player_stats(player_id, season):
-    """Fetches player statistics for a specific player in a season."""
     player_url = f"{BASE_URL}/players/{player_id[0]}/{player_id}.html"
     response = requests.get(player_url)
     soup = BeautifulSoup(response.text, 'html.parser')
@@ -72,18 +99,19 @@ def get_player_stats(player_id, season):
                 break
     return stats
 
-def save_to_csv(data, filename, headers=None):
-    """Saves data to a CSV file."""
-    print(f"Saving data to {filename}...")  # Added debug print
-    with open(filename, mode='w', newline='', encoding='utf-8') as file:
-        writer = csv.writer(file)
-        if headers:
-            writer.writerow(headers)
-        writer.writerows(data)
-    print(f"Data saved to {filename}.")  # Added debug print
+def save_games_to_db(games):
+    c.executemany('INSERT INTO games VALUES (?, ?, ?, ?, ?)', games)
+    conn.commit()
+
+def save_players_to_db(players):
+    c.executemany('INSERT INTO players VALUES (?, ?, ?, ?, ?, ?, ?)', players)
+    conn.commit()
+
+def save_player_stats_to_db(player_id, season, stats):
+    c.execute('INSERT INTO player_stats VALUES (?, ?, ?)', (player_id, season, stats['points_per_game']))
+    conn.commit()
 
 def fetch_data():
-    """Fetches NBA games and team rosters for seasons 2020-2024 and saves them to CSV files."""
     seasons = list(range(2020, 2025))
     all_games = []
     all_players = []
@@ -92,9 +120,7 @@ def fetch_data():
     for season in seasons:
         print(f"Fetching games for season {season}...")
         games = get_season_games(season)
-        if games:
-            print(f"Found {len(games)} games for season {season}.")
-        all_games.extend(games)
+        save_games_to_db(games)
         for game in games:
             teams.add(game[1])
             teams.add(game[3])
@@ -105,69 +131,45 @@ def fetch_data():
         for season in seasons:
             print(f"Fetching roster for team {team} in season {season}...")
             players = get_team_roster(team, season)
-            if players:
-                print(f"Found {len(players)} players for team {team} in season {season}.")
-            for player in players:
-                player.append(team)
-                player.append(season)
-            all_players.extend(players)
+            save_players_to_db(players)
             time.sleep(1)  # to avoid hitting the site too frequently
-    
-    all_games_headers = ['Date', 'Visitor Team', 'Visitor Score', 'Home Team', 'Home Score']
-    all_players_headers = ['Player Name', 'Position', 'Height', 'Weight', 'Birth Date', 'Team', 'Season']
-    
-    save_to_csv(all_games, 'nba_games_2020_2024.csv', all_games_headers)
-    save_to_csv(all_players, 'nba_players_2020_2024.csv', all_players_headers)
-    messagebox.showinfo("Data Fetch", "Data fetching complete and saved to CSV files.")
+
+    messagebox.showinfo("Data Fetch", "Data fetching complete and saved to the database.")
 
 def predict_game(team1, team2):
-    """Predicts game scores between two NBA teams."""
-    try:
-        games_df = pd.read_csv('nba_games_2020_2024.csv')
-        if games_df.empty:
-            raise ValueError("The CSV file is empty.")
-    except FileNotFoundError:
-        raise FileNotFoundError("The file 'nba_games_2020_2024.csv' does not exist.")
-    except pd.errors.EmptyDataError:
-        raise ValueError("No columns to parse from file. Ensure the file is properly formatted.")
+    c.execute('''SELECT AVG(visitor_score) FROM games WHERE visitor_team = ? OR home_team = ?''', (team1, team1))
+    team1_avg_score = c.fetchone()[0] or 0.0
     
-    team1_games = games_df[(games_df['Visitor Team'] == team1) | (games_df['Home Team'] == team1)]
-    team2_games = games_df[(games_df['Visitor Team'] == team2) | (games_df['Home Team'] == team2)]
-    
-    team1_avg_score = (team1_games['Visitor Score'].sum() + team1_games['Home Score'].sum()) / len(team1_games)
-    team2_avg_score = (team2_games['Visitor Score'].sum() + team2_games['Home Score'].sum()) / len(team2_games)
+    c.execute('''SELECT AVG(visitor_score) FROM games WHERE visitor_team = ? OR home_team = ?''', (team2, team2))
+    team2_avg_score = c.fetchone()[0] or 0.0
     
     result = f"Predicted Score:\n{team1}: {team1_avg_score:.2f}\n{team2}: {team2_avg_score:.2f}"
     return result
 
 def display_players(team, season):
-    """Displays players' details for a specific NBA team in a season."""
-    players_df = pd.read_csv('nba_players_2020_2024.csv')
-    players_df.columns = ['Player Name', 'Position', 'Height', 'Weight', 'Birth Date', 'Team', 'Season']
-    
-    team_players = players_df[(players_df['Team'] == team) & (players_df['Season'] == season)]
-    return team_players[['Player Name', 'Position', 'Height', 'Weight', 'Birth Date']].to_string(index=False)
+    c.execute('''SELECT player_name, position, height, weight, birth_date 
+                 FROM players WHERE team = ? AND season = ?''', (team, season))
+    players = c.fetchall()
+    return players
 
 def predict_player_scores(team, season):
-    """Predicts player scores for a specific NBA team in a season."""
-    players_df = pd.read_csv('nba_players_2020_2024.csv')
-    players_df.columns = ['Player Name', 'Position', 'Height', 'Weight', 'Birth Date', 'Team', 'Season']
+    c.execute('''SELECT player_name FROM players WHERE team = ? AND season = ?''', (team, season))
+    players = c.fetchall()
     
-    team_players = players_df[(players_df['Team'] == team) & (players_df['Season'] == season)]
     player_scores = {}
-    for _, row in team_players.iterrows():
-        player_name = row['Player Name']
-        player_id = row['Player Name'].split(' ')[1][:5].lower() + row['Player Name'].split(' ')[0][:2].lower()
-        stats = get_player_stats(player_id, season)
-        player_scores[player_name] = stats.get('points_per_game', 0.0)
+    for player in players:
+        player_name = player[0]
+        player_id = player_name.split(' ')[1][:5].lower() + player_name.split(' ')[0][:2].lower()
+        c.execute('''SELECT points_per_game FROM player_stats WHERE player_id = ? AND season = ?''', (player_id, season))
+        points_per_game = c.fetchone()
+        player_scores[player_name] = points_per_game[0] if points_per_game else 0.0
     
     return player_scores
 
 def on_predict():
-    """Handles prediction button click event."""
     team1 = team1_var.get()
     team2 = team2_var.get()
-    season = 2024  
+    season = 2024  # Example season, can be dynamic
     if team1 and team2:
         result = predict_game(team1, team2)
         players_team1 = display_players(team1, season)
