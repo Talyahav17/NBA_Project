@@ -3,17 +3,21 @@ from bs4 import BeautifulSoup
 import sqlite3
 import time
 import tkinter as tk
-from tkinter import messagebox, StringVar, OptionMenu, Label, Button
+from tkinter import messagebox, StringVar, OptionMenu
 from PIL import Image, ImageTk
 import pandas as pd
+from sklearn.model_selection import train_test_split
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense
 
+# Base URL for basketball-reference
 BASE_URL = "https://www.basketball-reference.com"
 
 # Connect to SQLite database (or create it)
 conn = sqlite3.connect('nba_data.db')
 c = conn.cursor()
 
-# Create tables
+# Create tables if they don't exist
 c.execute('''CREATE TABLE IF NOT EXISTS games (
                 date TEXT,
                 visitor_team TEXT,
@@ -40,33 +44,37 @@ c.execute('''CREATE TABLE IF NOT EXISTS player_stats (
 
 conn.commit()
 
-def get_season_games(season):
-    url = f"{BASE_URL}/leagues/NBA_{season}_games.html"
+# Function to get season games
+def get_season_games(team, season):
+    url = f"{BASE_URL}/teams/{team}/{season}_games.html"
     response = requests.get(url)
     soup = BeautifulSoup(response.text, 'html.parser')
     
     games = []
-    months = soup.select('div#div_games th[data-stat="month_name"] a')
-    for month in months:
-        month_url = BASE_URL + month['href']
-        month_response = requests.get(month_url)
-        month_soup = BeautifulSoup(month_response.text, 'html.parser')
-        rows = month_soup.select('table#schedule tbody tr')
-        for row in rows:
-            if row.get('class') and 'thead' in row.get('class'):
-                continue
-            date = row.find('th', {'data-stat': 'date_game'}).text.strip()
-            teams = row.find_all('td', {'data-stat': ['visitor_team_name', 'home_team_name']})
-            scores = row.find_all('td', {'data-stat': ['visitor_pts', 'home_pts']})
-            if teams and scores:
-                visitor_team = teams[0].text.strip()
-                home_team = teams[1].text.strip()
-                visitor_score = scores[0].text.strip()
-                home_score = scores[1].text.strip()
+    rows = soup.select('table[id="games"] tbody tr')
+    for row in rows:
+        # Skip header or other non-data rows
+        if row.get('class') and 'thead' in row.get('class'):
+            continue
+        
+        date_cell = row.find('th', {'data-stat': 'date_game'})
+        if not date_cell:
+            continue  # Skip rows where date is not found
+        
+        date = date_cell.text.strip()
+        teams = row.find_all('td', {'data-stat': ['visitor_team_name', 'home_team_name']})
+        scores = row.find_all('td', {'data-stat': ['visitor_pts', 'home_pts']})
+        if teams and scores:
+            visitor_team = teams[0].text.strip()
+            home_team = teams[1].text.strip()
+            visitor_score = scores[0].text.strip()
+            home_score = scores[1].text.strip()
+            if visitor_score and home_score:
                 games.append([date, visitor_team, int(visitor_score), home_team, int(home_score)])
     
     return games
 
+# Function to get team roster
 def get_team_roster(team, season):
     team_url = f"{BASE_URL}/teams/{team}/{season}.html"
     response = requests.get(team_url)
@@ -81,9 +89,11 @@ def get_team_roster(team, season):
             height = row.find('td', {'data-stat': 'height'}).text.strip()
             weight = row.find('td', {'data-stat': 'weight'}).text.strip()
             birth_date = row.find('td', {'data-stat': 'birth_date'}).text.strip()
-            players.append([player_name, position, height, weight, birth_date, team, season])
+            if player_name and position and height and weight and birth_date:
+                players.append([player_name, position, height, weight, birth_date, team, season])
     return players
 
+# Function to get player stats
 def get_player_stats(player_id, season):
     player_url = f"{BASE_URL}/players/{player_id[0]}/{player_id}.html"
     response = requests.get(player_url)
@@ -93,38 +103,39 @@ def get_player_stats(player_id, season):
     if stats_table:
         rows = stats_table.find('tbody').find_all('tr')
         for row in rows:
-            if row.find('th', {'data-stat': 'season'}).text.strip() == f"{season}-{season + 1}":
+            if row.find('th', {'data-stat': 'season'}) and \
+               row.find('th', {'data-stat': 'season'}).text.strip() == f"{season}-{season + 1}":
                 points = row.find('td', {'data-stat': 'pts_per_g'}).text.strip()
                 stats['points_per_game'] = float(points) if points else 0.0
                 break
     return stats
 
+# Function to save games to database
 def save_games_to_db(games):
     c.executemany('INSERT INTO games VALUES (?, ?, ?, ?, ?)', games)
     conn.commit()
 
+# Function to save players to database
 def save_players_to_db(players):
     c.executemany('INSERT INTO players VALUES (?, ?, ?, ?, ?, ?, ?)', players)
     conn.commit()
 
+# Function to save player stats to database
 def save_player_stats_to_db(player_id, season, stats):
     c.execute('INSERT INTO player_stats VALUES (?, ?, ?)', (player_id, season, stats['points_per_game']))
     conn.commit()
 
+# Function to fetch data for multiple seasons and teams
 def fetch_data():
     seasons = list(range(2020, 2025))
-    all_games = []
-    all_players = []
-    teams = set()
+    teams = ["ATL", "BOS", "BRK", "CHO", "CHI", "CLE", "DAL", "DEN", "DET", "GSW", "HOU", "IND", "LAC", "LAL", "MEM", "MIA", "MIL", "MIN", "NOP", "NYK", "OKC", "ORL", "PHI", "PHO", "POR", "SAC", "SAS", "TOR", "UTA", "WAS"]
     
-    for season in seasons:
-        print(f"Fetching games for season {season}...")
-        games = get_season_games(season)
-        save_games_to_db(games)
-        for game in games:
-            teams.add(game[1])
-            teams.add(game[3])
-        time.sleep(1)  # to avoid hitting the site too frequently
+    for team in teams:
+        for season in seasons:
+            print(f"Fetching games for team {team} in season {season}...")
+            games = get_season_games(team, season)
+            save_games_to_db(games)
+            time.sleep(1)  # to avoid hitting the site too frequently
     
     print("Fetching rosters for each team...")
     for team in teams:
@@ -136,51 +147,78 @@ def fetch_data():
 
     messagebox.showinfo("Data Fetch", "Data fetching complete and saved to the database.")
 
+# Function to predict game result using Neural Network
 def predict_game(team1, team2):
-    c.execute('''SELECT AVG(visitor_score) FROM games WHERE visitor_team = ? OR home_team = ?''', (team1, team1))
-    team1_avg_score = c.fetchone()[0] or 0.0
+    # Load data from the database
+    c.execute('''SELECT visitor_team, visitor_score, home_team, home_score FROM games''')
+    games_data = c.fetchall()
     
-    c.execute('''SELECT AVG(visitor_score) FROM games WHERE visitor_team = ? OR home_team = ?''', (team2, team2))
-    team2_avg_score = c.fetchone()[0] or 0.0
+    if not games_data:
+        messagebox.showerror("Error", "No game data available.")
+        return
     
-    result = f"Predicted Score:\n{team1}: {team1_avg_score:.2f}\n{team2}: {team2_avg_score:.2f}"
+    # Prepare the data for the neural network
+    data = pd.DataFrame(games_data, columns=['visitor_team', 'visitor_score', 'home_team', 'home_score'])
+    data['outcome'] = (data['visitor_score'] > data['home_score']).astype(int)  # 1 if visitor wins, 0 if home wins
+    
+    # One-hot encode team names
+    X = pd.get_dummies(data[['visitor_team', 'home_team']])
+    y = data['outcome']
+    
+    if X.empty or y.empty:
+        messagebox.showerror("Error", "The dataset is empty or not formatted correctly.")
+        return
+    
+    print(f"Data Shape: X={X.shape}, y={y.shape}")
+    
+    # Split data into training and testing sets
+    try:
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+    except ValueError as e:
+        messagebox.showerror("Error", f"Data split failed: {e}")
+        return
+    
+    # Define the neural network model
+    model = Sequential([
+        Dense(128, activation='relu', input_shape=(X_train.shape[1],)),
+        Dense(64, activation='relu'),
+        Dense(1, activation='sigmoid')
+    ])
+    
+    # Compile the model
+    model.compile(loss='binary_crossentropy', optimizer='adam', metrics=['accuracy'])
+    
+    # Train the model
+    model.fit(X_train, y_train, epochs=10, batch_size=32, verbose=1)
+    
+    # Make predictions for the input teams
+    input_data = pd.get_dummies(pd.DataFrame([[team1, team2]], columns=['visitor_team', 'home_team']))
+    input_data = input_data.reindex(columns=X_train.columns, fill_value=0)
+    
+    prediction = model.predict(input_data)[0][0]
+    result = f"Predicted probability that {team1} will win against {team2}: {prediction:.2f}"
+    
     return result
 
-def display_players(team, season):
-    c.execute('''SELECT player_name, position, height, weight, birth_date 
-                 FROM players WHERE team = ? AND season = ?''', (team, season))
-    players = c.fetchall()
-    return players
-
-def predict_player_scores(team, season):
-    c.execute('''SELECT player_name FROM players WHERE team = ? AND season = ?''', (team, season))
-    players = c.fetchall()
-    
-    player_scores = {}
-    for player in players:
-        player_name = player[0]
-        player_id = player_name.split(' ')[1][:5].lower() + player_name.split(' ')[0][:2].lower()
-        c.execute('''SELECT points_per_game FROM player_stats WHERE player_id = ? AND season = ?''', (player_id, season))
-        points_per_game = c.fetchone()
-        player_scores[player_name] = points_per_game[0] if points_per_game else 0.0
-    
-    return player_scores
-
+# Function triggered when the "Predict Game" button is clicked
 def on_predict():
     team1 = team1_var.get()
     team2 = team2_var.get()
-    season = 2024  # Example season, can be dynamic
     if team1 and team2:
         result = predict_game(team1, team2)
-        players_team1 = display_players(team1, season)
-        players_team2 = display_players(team2, season)
-        player_scores_team1 = predict_player_scores(team1, season)
-        player_scores_team2 = predict_player_scores(team2, season)
-        messagebox.showinfo("Prediction Result", f"{result}\n\n{team1} Players:\n{players_team1}\n\n{team2} Players:\n{players_team2}\n\n{team1} Player Scores:\n{player_scores_team1}\n\n{team2} Player Scores:\n{player_scores_team2}")
+        messagebox.showinfo("Prediction Result", result)
     else:
         messagebox.showwarning("Input Error", "Please select both teams.")
 
-
+# Function triggered when the "Predict Game" button is clicked
+def on_predict():
+    team1 = team1_var.get()
+    team2 = team2_var.get()
+    if team1 and team2:
+        result = predict_game(team1, team2)
+        messagebox.showinfo("Prediction Result", result)
+    else:
+        messagebox.showwarning("Input Error", "Please select both teams.")
 # GUI Setup
 root = tk.Tk()
 root.title("NBA Prediction")
