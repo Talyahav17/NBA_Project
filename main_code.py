@@ -10,9 +10,9 @@ import tensorflow as tf
 from sklearn.model_selection import train_test_split
 # from tensorflow.keras.models import Sequential
 # from tensorflow.keras.layers import Dense
- 
 # Base URL for basketball-reference
 BASE_URL = "https://www.basketball-reference.com"
+
 
 # Connect to SQLite database (or create it)
 # conn = sqlite3.connect('nba_data.db')
@@ -46,37 +46,81 @@ c.execute('''CREATE TABLE IF NOT EXISTS player_stats (
 
 conn.commit()
 
+
+"""
+row:
+<tr>
+    <th class="right" data-stat="g" scope="row">1</th>
+    <td class="left" csk="2019-10-24" data-stat="date_game"><a href="/boxscores/index.cgi?month=10&amp;day=24&amp;year=2019">Thu, Oct 24, 2019</a></td>
+    <td class="right" data-stat="game_start_time">7:00p</td><td class="right iz" data-stat="network"></td>
+    <td class="center" data-stat="box_score_text"><a href="/boxscores/201910240DET.html">Box Score</a></td>
+    <td class="center" data-stat="game_location">@</td>
+    <td class="left" csk="DET2019-10-24" data-stat="opp_name"><a href="/teams/DET/2020.html">Detroit Pistons</a></td>
+    <td class="center" data-stat="game_result">W</td>
+    <td class="center iz" data-stat="overtimes"></td>
+    <td class="right" data-stat="pts">117</td>
+    <td class="right" data-stat="opp_pts">100</td>
+    <td class="right" data-stat="wins">1</td>
+    <td class="right iz" data-stat="losses">0</td>
+    <td class="left" data-stat="game_streak">W 1</td>
+    <td class="right" data-stat="attendance">20,338</td>
+    <td class="right" data-stat="game_duration">2:15</td>
+    <td class="left iz" data-stat="game_remarks"></td>
+</tr>
+"""
+
+
 # Function to get season games
 def get_season_games(team, season):
     url = f"{BASE_URL}/teams/{team}/{season}_games.html"
+    print("url:", url)
     response = requests.get(url)
     soup = BeautifulSoup(response.text, 'html.parser')
-    
+
     games = []
     rows = soup.select('table[id="games"] tbody tr')
     for row in rows:
         # Skip header or other non-data rows
         if row.get('class') and 'thead' in row.get('class'):
+            print("skipping row")
             continue
 
-        date_cell = row.find('th', {'data-stat': 'date_game'})
-        if not date_cell:
+        date_cell = row.find("td", {"data-stat": "date_game"})
+        # print("date_cell:", date_cell)
+        if not date_cell:  # BUG: date is None
             continue  # Skip rows where date is not found
 
         date = date_cell.text.strip()
-        teams = row.find_all('td', {'data-stat': ['visitor_team_name', 'home_team_name']})
-        scores = row.find_all('td', {'data-stat': ['visitor_pts', 'home_pts']})
-        if teams and scores:
-            visitor_team = teams[0].text.strip()
-            home_team = teams[1].text.strip()
+        # print("date after strip:", date)
+
+        visitor_team_element = row.find(
+            "td", {"data-stat": "opp_name"}
+        )  # teams = row.find_all('td', {'data-stat': ['visitor_team_name', 'home_team_name']})
+        a_tag = visitor_team_element.find("a")
+        # Extract the team name
+        visitor_team = a_tag.text
+        print("visitor_team:", visitor_team)
+
+        scores = row.find_all(
+            "td", {"data-stat": ["pts", "opp_pts"]}
+        )  # scores = row.find_all('td', {'data-stat': ['visitor_pts', 'home_pts']})
+        print("scores:", scores)
+
+        if visitor_team and scores:  # if teams and scores:
+            # visitor_team = teams[0].text.strip()
+            visitor_team = visitor_team[0].strip()
+            home_team = team  # teams[1].text.strip()
             visitor_score = scores[0].text.strip()
             home_score = scores[1].text.strip()
             if visitor_score and home_score:
-                games.append([date, visitor_team, int(visitor_score), home_team, int(home_score)])
+                games.append(
+                    [date, visitor_team, int(visitor_score), home_team, int(home_score)]
+                )
                 break
 
     print("in get season games, found games: ", games)
     return games
+
 
 # Function to get team roster
 def get_team_roster(team, season):
@@ -120,20 +164,24 @@ def get_player_stats(player_id, season):
     print("in get player stats, found stats: ", stats)
     return stats
 
+
 # Function to save games to database
 def save_games_to_db(games):
     c.executemany('INSERT INTO games VALUES (?, ?, ?, ?, ?)', games)
     conn.commit()
+
 
 # Function to save players to database
 def save_players_to_db(players):
     c.executemany('INSERT INTO players VALUES (?, ?, ?, ?, ?, ?, ?)', players)
     conn.commit()
 
+
 # Function to save player stats to database
 def save_player_stats_to_db(player_id, season, stats):
     c.execute('INSERT INTO player_stats VALUES (?, ?, ?)', (player_id, season, stats['points_per_game']))
     conn.commit()
+
 
 # Function to fetch data for multiple seasons and teams
 def fetch_data():
@@ -149,7 +197,7 @@ def fetch_data():
             if (len(games) > 0):
                 break
         if (len(games) > 0):
-                break
+            break
 
     print("Fetching rosters for each team...")
     for team in teams:
@@ -161,9 +209,10 @@ def fetch_data():
             if (len(players) > 0):
                 break
         if (len(players) > 0):
-                break
+            break
 
     messagebox.showinfo("Data Fetch", "Data fetching complete and saved to the database.")
+
 
 # Function to predict game result using Neural Network
 def predict_game(team1, team2):
@@ -228,6 +277,8 @@ def on_predict():
         messagebox.showinfo("Prediction Result", result)
     else:
         messagebox.showwarning("Input Error", "Please select both teams.")
+
+
 # GUI Setup
 root = tk.Tk()
 root.title("NBA Prediction")
