@@ -6,15 +6,17 @@ import tkinter as tk
 from tkinter import messagebox, StringVar, OptionMenu
 from PIL import Image, ImageTk
 import pandas as pd
+import tensorflow as tf
 from sklearn.model_selection import train_test_split
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Dense
-
+# from tensorflow.keras.models import Sequential
+# from tensorflow.keras.layers import Dense
+ 
 # Base URL for basketball-reference
 BASE_URL = "https://www.basketball-reference.com"
 
 # Connect to SQLite database (or create it)
-conn = sqlite3.connect('nba_data.db')
+# conn = sqlite3.connect('nba_data.db')
+conn = sqlite3.connect('nba_data_test.db')
 c = conn.cursor()
 
 # Create tables if they don't exist
@@ -56,11 +58,11 @@ def get_season_games(team, season):
         # Skip header or other non-data rows
         if row.get('class') and 'thead' in row.get('class'):
             continue
-        
+
         date_cell = row.find('th', {'data-stat': 'date_game'})
         if not date_cell:
             continue  # Skip rows where date is not found
-        
+
         date = date_cell.text.strip()
         teams = row.find_all('td', {'data-stat': ['visitor_team_name', 'home_team_name']})
         scores = row.find_all('td', {'data-stat': ['visitor_pts', 'home_pts']})
@@ -71,7 +73,9 @@ def get_season_games(team, season):
             home_score = scores[1].text.strip()
             if visitor_score and home_score:
                 games.append([date, visitor_team, int(visitor_score), home_team, int(home_score)])
-    
+                break
+
+    print("in get season games, found games: ", games)
     return games
 
 # Function to get team roster
@@ -91,6 +95,9 @@ def get_team_roster(team, season):
             birth_date = row.find('td', {'data-stat': 'birth_date'}).text.strip()
             if player_name and position and height and weight and birth_date:
                 players.append([player_name, position, height, weight, birth_date, team, season])
+                break
+
+    print("in get team roster, found players: ", players)
     return players
 
 # Function to get player stats
@@ -107,7 +114,10 @@ def get_player_stats(player_id, season):
                row.find('th', {'data-stat': 'season'}).text.strip() == f"{season}-{season + 1}":
                 points = row.find('td', {'data-stat': 'pts_per_g'}).text.strip()
                 stats['points_per_game'] = float(points) if points else 0.0
+                # break # BUG: maybe we should not break here
                 break
+
+    print("in get player stats, found stats: ", stats)
     return stats
 
 # Function to save games to database
@@ -129,14 +139,18 @@ def save_player_stats_to_db(player_id, season, stats):
 def fetch_data():
     seasons = list(range(2020, 2025))
     teams = ["ATL", "BOS", "BRK", "CHO", "CHI", "CLE", "DAL", "DEN", "DET", "GSW", "HOU", "IND", "LAC", "LAL", "MEM", "MIA", "MIL", "MIN", "NOP", "NYK", "OKC", "ORL", "PHI", "PHO", "POR", "SAC", "SAS", "TOR", "UTA", "WAS"]
-    
+
     for team in teams:
         for season in seasons:
             print(f"Fetching games for team {team} in season {season}...")
             games = get_season_games(team, season)
             save_games_to_db(games)
             time.sleep(1)  # to avoid hitting the site too frequently
-    
+            if (len(games) > 0):
+                break
+        if (len(games) > 0):
+                break
+
     print("Fetching rosters for each team...")
     for team in teams:
         for season in seasons:
@@ -144,6 +158,10 @@ def fetch_data():
             players = get_team_roster(team, season)
             save_players_to_db(players)
             time.sleep(1)  # to avoid hitting the site too frequently
+            if (len(players) > 0):
+                break
+        if (len(players) > 0):
+                break
 
     messagebox.showinfo("Data Fetch", "Data fetching complete and saved to the database.")
 
@@ -152,7 +170,7 @@ def predict_game(team1, team2):
     # Load data from the database
     c.execute('''SELECT visitor_team, visitor_score, home_team, home_score FROM games''')
     games_data = c.fetchall()
-    
+
     if not games_data:
         messagebox.showerror("Error", "No game data available.")
         return
@@ -179,10 +197,10 @@ def predict_game(team1, team2):
         return
     
     # Define the neural network model
-    model = Sequential([
-        Dense(128, activation='relu', input_shape=(X_train.shape[1],)),
-        Dense(64, activation='relu'),
-        Dense(1, activation='sigmoid')
+    model = tf.keras.Sequential([
+        tf.keras.Dense(128, activation='relu', input_shape=(X_train.shape[1],)),
+        tf.keras.Dense(64, activation='relu'),
+        tf.keras.Dense(1, activation='sigmoid')
     ])
     
     # Compile the model
@@ -200,15 +218,6 @@ def predict_game(team1, team2):
     
     return result
 
-# Function triggered when the "Predict Game" button is clicked
-def on_predict():
-    team1 = team1_var.get()
-    team2 = team2_var.get()
-    if team1 and team2:
-        result = predict_game(team1, team2)
-        messagebox.showinfo("Prediction Result", result)
-    else:
-        messagebox.showwarning("Input Error", "Please select both teams.")
 
 # Function triggered when the "Predict Game" button is clicked
 def on_predict():
