@@ -8,15 +8,11 @@ from PIL import Image, ImageTk
 import pandas as pd
 import tensorflow as tf
 from sklearn.model_selection import train_test_split
-# from tensorflow.keras.models import Sequential
-# from tensorflow.keras.layers import Dense
+
 # Base URL for basketball-reference
 BASE_URL = "https://www.basketball-reference.com"
 
-
-# Connect to SQLite database (or create it)
-# conn = sqlite3.connect('nba_data.db')
-conn = sqlite3.connect('nba_data_test.db')
+conn = sqlite3.connect('nba_data.db')
 c = conn.cursor()
 
 # Create tables if they don't exist
@@ -47,78 +43,45 @@ c.execute('''CREATE TABLE IF NOT EXISTS player_stats (
 conn.commit()
 
 
-"""
-row:
-<tr>
-    <th class="right" data-stat="g" scope="row">1</th>
-    <td class="left" csk="2019-10-24" data-stat="date_game"><a href="/boxscores/index.cgi?month=10&amp;day=24&amp;year=2019">Thu, Oct 24, 2019</a></td>
-    <td class="right" data-stat="game_start_time">7:00p</td><td class="right iz" data-stat="network"></td>
-    <td class="center" data-stat="box_score_text"><a href="/boxscores/201910240DET.html">Box Score</a></td>
-    <td class="center" data-stat="game_location">@</td>
-    <td class="left" csk="DET2019-10-24" data-stat="opp_name"><a href="/teams/DET/2020.html">Detroit Pistons</a></td>
-    <td class="center" data-stat="game_result">W</td>
-    <td class="center iz" data-stat="overtimes"></td>
-    <td class="right" data-stat="pts">117</td>
-    <td class="right" data-stat="opp_pts">100</td>
-    <td class="right" data-stat="wins">1</td>
-    <td class="right iz" data-stat="losses">0</td>
-    <td class="left" data-stat="game_streak">W 1</td>
-    <td class="right" data-stat="attendance">20,338</td>
-    <td class="right" data-stat="game_duration">2:15</td>
-    <td class="left iz" data-stat="game_remarks"></td>
-</tr>
-"""
-
-
 # Function to get season games
 def get_season_games(team, season):
     url = f"{BASE_URL}/teams/{team}/{season}_games.html"
-    print("url:", url)
     response = requests.get(url)
     soup = BeautifulSoup(response.text, 'html.parser')
 
     games = []
     rows = soup.select('table[id="games"] tbody tr')
     for row in rows:
-        # Skip header or other non-data rows
         if row.get('class') and 'thead' in row.get('class'):
-            print("skipping row")
             continue
 
         date_cell = row.find("td", {"data-stat": "date_game"})
-        # print("date_cell:", date_cell)
-        if not date_cell:  # BUG: date is None
+        if not date_cell: 
             continue  # Skip rows where date is not found
 
         date = date_cell.text.strip()
-        # print("date after strip:", date)
 
         visitor_team_element = row.find(
             "td", {"data-stat": "opp_name"}
-        )  # teams = row.find_all('td', {'data-stat': ['visitor_team_name', 'home_team_name']})
+        ) 
         a_tag = visitor_team_element.find("a")
         # Extract the team name
         visitor_team = a_tag.text
-        print("visitor_team:", visitor_team)
 
         scores = row.find_all(
             "td", {"data-stat": ["pts", "opp_pts"]}
-        )  # scores = row.find_all('td', {'data-stat': ['visitor_pts', 'home_pts']})
-        print("scores:", scores)
+        ) 
 
-        if visitor_team and scores:  # if teams and scores:
-            # visitor_team = teams[0].text.strip()
+        if visitor_team and scores:  
             visitor_team = visitor_team[0].strip()
-            home_team = team  # teams[1].text.strip()
+            home_team = team 
             visitor_score = scores[0].text.strip()
             home_score = scores[1].text.strip()
             if visitor_score and home_score:
                 games.append(
                     [date, visitor_team, int(visitor_score), home_team, int(home_score)]
                 )
-                break
-
-    print("in get season games, found games: ", games)
+ 
     return games
 
 
@@ -139,9 +102,7 @@ def get_team_roster(team, season):
             birth_date = row.find('td', {'data-stat': 'birth_date'}).text.strip()
             if player_name and position and height and weight and birth_date:
                 players.append([player_name, position, height, weight, birth_date, team, season])
-                break
 
-    print("in get team roster, found players: ", players)
     return players
 
 # Function to get player stats
@@ -158,10 +119,8 @@ def get_player_stats(player_id, season):
                row.find('th', {'data-stat': 'season'}).text.strip() == f"{season}-{season + 1}":
                 points = row.find('td', {'data-stat': 'pts_per_g'}).text.strip()
                 stats['points_per_game'] = float(points) if points else 0.0
-                # break # BUG: maybe we should not break here
                 break
 
-    print("in get player stats, found stats: ", stats)
     return stats
 
 
@@ -190,26 +149,16 @@ def fetch_data():
 
     for team in teams:
         for season in seasons:
-            print(f"Fetching games for team {team} in season {season}...")
+            # print(f"Fetching games for team {team} in season {season}...")
             games = get_season_games(team, season)
             save_games_to_db(games)
             time.sleep(1)  # to avoid hitting the site too frequently
-            if (len(games) > 0):
-                break
-        if (len(games) > 0):
-            break
-
-    print("Fetching rosters for each team...")
+   
     for team in teams:
         for season in seasons:
-            print(f"Fetching roster for team {team} in season {season}...")
             players = get_team_roster(team, season)
             save_players_to_db(players)
             time.sleep(1)  # to avoid hitting the site too frequently
-            if (len(players) > 0):
-                break
-        if (len(players) > 0):
-            break
 
     messagebox.showinfo("Data Fetch", "Data fetching complete and saved to the database.")
 
@@ -229,7 +178,7 @@ def predict_game(team1, team2):
     data['outcome'] = (data['visitor_score'] > data['home_score']).astype(int)  # 1 if visitor wins, 0 if home wins
     
     # One-hot encode team names
-    X = pd.get_dummies(data[['visitor_team', 'home_team']])
+    X = pd.get_dummies(data[['visitor_team', 'home_team']], dtype=float)
     y = data['outcome']
     
     if X.empty or y.empty:
@@ -247,9 +196,9 @@ def predict_game(team1, team2):
     
     # Define the neural network model
     model = tf.keras.Sequential([
-        tf.keras.Dense(128, activation='relu', input_shape=(X_train.shape[1],)),
-        tf.keras.Dense(64, activation='relu'),
-        tf.keras.Dense(1, activation='sigmoid')
+        tf.keras.layers.Dense(128, activation='relu', input_shape=(X_train.shape[1],)),
+        tf.keras.layers.Dense(64, activation='relu'),
+        tf.keras.layers.Dense(1, activation='sigmoid')
     ])
     
     # Compile the model
@@ -259,8 +208,11 @@ def predict_game(team1, team2):
     model.fit(X_train, y_train, epochs=10, batch_size=32, verbose=1)
     
     # Make predictions for the input teams
-    input_data = pd.get_dummies(pd.DataFrame([[team1, team2]], columns=['visitor_team', 'home_team']))
+    input_data = pd.get_dummies(pd.DataFrame([[team1, team2]], columns=['visitor_team', 'home_team']), dtype=float)
     input_data = input_data.reindex(columns=X_train.columns, fill_value=0)
+    
+    # Ensure the input data is converted to a NumPy array and is of the correct type
+    input_data = input_data.values.astype(float)
     
     prediction = model.predict(input_data)[0][0]
     result = f"Predicted probability that {team1} will win against {team2}: {prediction:.2f}"
